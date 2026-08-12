@@ -4,18 +4,18 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-  "dev": "vite",          // или react-scripts start, next dev и т.п.
-  "build": "vite build",  // или react-scripts build, next build
-  "preview": "vite preview"
-}
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
     "@types/leaflet": "^1.9.22",
-    "clsx": "^2.1.1",
+    "clsx": "2.1.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.31.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "3.4.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.17",

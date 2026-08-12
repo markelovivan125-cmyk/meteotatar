@@ -25,7 +25,6 @@ body {
   background: #dbe4ee;
   font-family: inherit;
   touch-action: none;
-  cursor: crosshair;
 }
 
 .leaflet-control-attribution {
@@ -33,9 +32,9 @@ body {
 }
 
 .leaflet-touch .leaflet-bar a {
-  width: 36px;
-  height: 36px;
-  line-height: 36px;
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
 }
 
 ::-webkit-scrollbar {

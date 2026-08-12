@@ -1,36 +1,36 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
+  X,
+  Sun,
+  Moon,
   MousePointer2,
-  Pentagon,
+  Pencil,
   Square,
-  Circle,
-  Spline,
-  Minus,
+  Circle as CircleIcon,
   MapPin,
-  Move,
-  Edit3,
-  Trash2,
-  Copy,
   Undo2,
   Redo2,
-  Download,
-  Upload,
-  Crosshair,
-  RotateCw,
+  Trash2,
+  Copy,
   Eye,
   EyeOff,
-  X,
+  ZoomIn,
+  Download,
+  Upload,
+  LocateFixed,
+  RotateCcw,
+  User,
 } from "lucide-react";
-import type { DrawMode, ShapeRecord, ShapeStyle } from "../types/shapes";
-import { CATEGORY_PRESETS, COLOR_SWATCHES } from "../types/shapes";
+import { CATEGORIES, EXTRA_COLORS, type CategoryId } from "../lib/categories";
+import type { DrawMode, ShapeMeta, ShapeStatus } from "../types/map";
 import { cn } from "../utils/cn";
 
-interface Props {
+interface ToolbarProps {
   open: boolean;
   onClose: () => void;
   mode: DrawMode;
   setMode: (m: DrawMode) => void;
-  shapes: ShapeRecord[];
+  shapes: ShapeMeta[];
   selectedId: string | null;
   selectShape: (id: string) => void;
   onDeleteSelected: () => void;
@@ -40,10 +40,14 @@ interface Props {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  activeCategory: string;
-  setActiveCategory: (id: string) => void;
-  activeStyle: ShapeStyle;
-  setActiveStyle: (s: ShapeStyle) => void;
+  activeCategory: CategoryId;
+  setActiveCategory: (c: CategoryId) => void;
+  activeStyle: { color: string; fillOpacity: number; status: ShapeStatus };
+  setActiveStyle: (patch: Partial<{ color: string; fillOpacity: number; status: ShapeStatus }>) => void;
+  theme: "light" | "dark";
+  setTheme: (t: "light" | "dark") => void;
+  synoptic: string;
+  setSynoptic: (s: string) => void;
   exportGeoJSON: () => void;
   importGeoJSON: (text: string) => void;
   toggleVisibility: (id: string) => void;
@@ -52,352 +56,407 @@ interface Props {
   resetView: () => void;
 }
 
-const DRAW_TOOLS: { mode: DrawMode; label: string; icon: React.ReactNode }[] = [
-  { mode: "polygon", label: "Полигон", icon: <Pentagon size={18} /> },
-  { mode: "rectangle", label: "Прямоугольник", icon: <Square size={18} /> },
-  { mode: "circle", label: "Круг", icon: <Circle size={18} /> },
-  { mode: "freehand", label: "От руки", icon: <Spline size={18} /> },
-  { mode: "line", label: "Линия", icon: <Minus size={18} /> },
-  { mode: "point", label: "Точка", icon: <MapPin size={18} /> },
+const TOOLS: { id: DrawMode; label: string; icon: typeof MousePointer2 }[] = [
+  { id: "select", label: "Курсор", icon: MousePointer2 },
+  { id: "polygon", label: "Полигон", icon: Pencil },
+  { id: "rectangle", label: "Прямоугольник", icon: Square },
+  { id: "circle", label: "Круг", icon: CircleIcon },
+  { id: "marker", label: "Точка", icon: MapPin },
 ];
 
-const EDIT_TOOLS: { mode: DrawMode; label: string; icon: React.ReactNode }[] = [
-  { mode: "select", label: "Выбор", icon: <MousePointer2 size={18} /> },
-  { mode: "edit", label: "Узлы", icon: <Edit3 size={18} /> },
-  { mode: "move", label: "Сдвиг", icon: <Move size={18} /> },
-];
+export default function Toolbar(props: ToolbarProps) {
+  const {
+    open,
+    onClose,
+    mode,
+    setMode,
+    shapes,
+    selectedId,
+    selectShape,
+    onDeleteSelected,
+    onDuplicate,
+    onClearAll,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    activeCategory,
+    setActiveCategory,
+    activeStyle,
+    setActiveStyle,
+    theme,
+    setTheme,
+    synoptic,
+    setSynoptic,
+    exportGeoJSON,
+    importGeoJSON,
+    toggleVisibility,
+    zoomToShape,
+    locate,
+    resetView,
+  } = props;
 
-function ToolButton({
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importError, setImportError] = useState(false);
+
+  const handleImportClick = () => fileInputRef.current?.click();
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        importGeoJSON(String(reader.result));
+        setImportError(false);
+      } catch {
+        setImportError(true);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <>
+      {open && (
+        <div
+          onClick={onClose}
+          className="fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-[1px] md:hidden"
+        />
+      )}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 flex w-full max-w-sm flex-col bg-white/97 shadow-2xl ring-1 ring-slate-200 backdrop-blur transition-transform duration-300 ease-out dark:bg-slate-900/97 dark:ring-slate-700",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] dark:border-slate-700">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-500">CSF · SPC стиль</p>
+            <h1 className="text-lg font-bold leading-tight text-slate-900 dark:text-white">МетеоТатарстан</h1>
+            <p className="text-xs text-slate-400">Радар зон и предупреждений</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+          {/* Theme */}
+          <section>
+            <SectionLabel emoji="🎨" text="Тема" />
+            <div className="grid grid-cols-2 gap-2">
+              <ThemeBtn active={theme === "light"} onClick={() => setTheme("light")} icon={Sun} label="Светлая" />
+              <ThemeBtn active={theme === "dark"} onClick={() => setTheme("dark")} icon={Moon} label="Тёмная" />
+            </div>
+          </section>
+
+          {/* Categories */}
+          <section>
+            <SectionLabel emoji="🗂️" text="Категория оповещения" />
+            <div className="grid grid-cols-2 gap-2">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={cn(
+                    "flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition",
+                    activeCategory === cat.id
+                      ? "border-transparent text-white shadow-md"
+                      : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  )}
+                  style={activeCategory === cat.id ? { backgroundColor: cat.color } : undefined}
+                >
+                  <span>
+                    {cat.emoji} {cat.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-[10px] font-normal",
+                      activeCategory === cat.id ? "text-white/85" : "text-slate-400"
+                    )}
+                  >
+                    {cat.description}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Tool */}
+          <section>
+            <SectionLabel emoji="✏️" text="Инструмент" />
+            <div className="grid grid-cols-5 gap-1.5">
+              {TOOLS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setMode(t.id)}
+                  title={t.label}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-xl border px-1 py-2.5 text-[10px] font-medium transition",
+                    mode === t.id
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10"
+                      : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                  )}
+                >
+                  <t.icon size={17} />
+                  <span className="leading-none">{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Color / style */}
+          <section>
+            <SectionLabel emoji="🖍️" text="Цвет и стиль зоны" />
+            <div className="flex flex-wrap gap-2">
+              {EXTRA_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setActiveStyle({ color: c })}
+                  className={cn(
+                    "h-7 w-7 rounded-full ring-2 ring-offset-2 transition dark:ring-offset-slate-900",
+                    activeStyle.color === c ? "ring-slate-800 dark:ring-white" : "ring-transparent"
+                  )}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              <input
+                type="color"
+                value={activeStyle.color}
+                onChange={(e) => setActiveStyle({ color: e.target.value })}
+                className="h-7 w-7 cursor-pointer rounded-full border-0 bg-transparent p-0"
+              />
+            </div>
+            <div className="mt-3">
+              <div className="mb-1 flex justify-between text-xs text-slate-500">
+                <span>Заливка</span>
+                <span>{Math.round(activeStyle.fillOpacity * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={0.1}
+                max={0.7}
+                step={0.05}
+                value={activeStyle.fillOpacity}
+                onChange={(e) => setActiveStyle({ fillOpacity: Number(e.target.value) })}
+                className="w-full accent-indigo-600"
+              />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <StatusBtn
+                active={activeStyle.status === "forecast"}
+                onClick={() => setActiveStyle({ status: "forecast" })}
+                label="🔎 Прогноз"
+              />
+              <StatusBtn
+                active={activeStyle.status === "active"}
+                onClick={() => setActiveStyle({ status: "active" })}
+                label="⚠️ Подтверждено"
+              />
+            </div>
+          </section>
+
+          {/* Synoptic */}
+          <section>
+            <SectionLabel emoji="👤" text="Синоптик" />
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
+              <User size={16} className="text-slate-400" />
+              <input
+                value={synoptic}
+                onChange={(e) => setSynoptic(e.target.value)}
+                placeholder="Ваше имя / позывной"
+                className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-200"
+              />
+            </div>
+          </section>
+
+          {/* Actions */}
+          <section>
+            <SectionLabel emoji="🧰" text="Действия" />
+            <div className="grid grid-cols-2 gap-2">
+              <ActionBtn icon={Undo2} label="Отменить" onClick={undo} disabled={!canUndo} />
+              <ActionBtn icon={Redo2} label="Вернуть" onClick={redo} disabled={!canRedo} />
+              <ActionBtn icon={LocateFixed} label="Моё место" onClick={locate} />
+              <ActionBtn icon={RotateCcw} label="Татарстан" onClick={resetView} />
+              <ActionBtn icon={Download} label="Экспорт" onClick={exportGeoJSON} />
+              <ActionBtn icon={Upload} label="Импорт" onClick={handleImportClick} />
+            </div>
+            <input ref={fileInputRef} type="file" accept=".geojson,.json" onChange={handleFile} className="hidden" />
+            {importError && <p className="mt-1 text-xs text-red-500">Не удалось прочитать файл</p>}
+            <button
+              onClick={onClearAll}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+            >
+              <Trash2 size={15} /> Очистить всю карту
+            </button>
+          </section>
+
+          {/* Shapes list */}
+          <section>
+            <SectionLabel emoji="📋" text={`Зоны на карте (${shapes.length})`} />
+            {shapes.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400 dark:border-slate-700">
+                Пока нет ни одной зоны. Выберите инструмент выше и отметьте зону на карте.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {shapes.map((s) => {
+                  const cat = CATEGORIES.find((c) => c.id === s.category)!;
+                  const isSelected = s.id === selectedId;
+                  return (
+                    <li
+                      key={s.id}
+                      onClick={() => selectShape(s.id)}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 rounded-xl border px-2.5 py-2 text-xs transition",
+                        isSelected
+                          ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-500/10"
+                          : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                      )}
+                    >
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{ backgroundColor: s.style.color, opacity: s.visible ? 1 : 0.3 }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-slate-700 dark:text-slate-200">
+                          {cat.emoji} {s.label}
+                        </p>
+                        <p className="truncate text-[10px] text-slate-400">
+                          {s.style.status === "active" ? "Подтверждено" : "Прогноз"}
+                          {s.areaKm2 ? ` · ~${Math.round(s.areaKm2)} км²` : ""}
+                          {s.synoptic ? ` · ${s.synoptic}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <IconBtn
+                          icon={s.visible ? Eye : EyeOff}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleVisibility(s.id);
+                          }}
+                        />
+                        <IconBtn
+                          icon={ZoomIn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            zoomToShape(s.id);
+                          }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {selectedId && (
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={onDuplicate}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <Copy size={13} /> Копировать
+                </button>
+                <button
+                  onClick={onDeleteSelected}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-200 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                >
+                  <Trash2 size={13} /> Удалить
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="border-t border-slate-200 px-4 py-2.5 text-center text-[10px] text-slate-400 dark:border-slate-700">
+          Идея категорий и рабочего процесса вдохновлена проектом CSF · SPC Russia
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function SectionLabel({ emoji, text }: { emoji: string; text: string }) {
+  return (
+    <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+      <span>{emoji}</span> {text}
+    </p>
+  );
+}
+
+function ThemeBtn({
   active,
-  label,
-  icon,
   onClick,
+  icon: Icon,
+  label,
 }: {
   active: boolean;
-  label: string;
-  icon: React.ReactNode;
   onClick: () => void;
+  icon: typeof Sun;
+  label: string;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-[10px] font-semibold transition active:scale-95",
-        active ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+        "flex items-center justify-center gap-2 rounded-xl border py-2 text-sm font-semibold transition",
+        active
+          ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10"
+          : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
       )}
     >
-      {icon}
-      <span className="leading-none">{label}</span>
+      <Icon size={15} /> {label}
     </button>
   );
 }
 
-function SegmentedControl<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
+function StatusBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
-    <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-xs">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "flex-1 px-2 py-1.5 font-medium transition",
-            value === o.value ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={onClick}
+      className={cn(
+        "rounded-xl border py-2 text-xs font-semibold transition",
+        active
+          ? "border-indigo-500 bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10"
+          : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
-export default function Toolbar({
-  open,
-  onClose,
-  mode,
-  setMode,
-  shapes,
-  selectedId,
-  selectShape,
-  onDeleteSelected,
-  onDuplicate,
-  onClearAll,
-  undo,
-  redo,
-  canUndo,
-  canRedo,
-  activeCategory,
-  setActiveCategory,
-  activeStyle,
-  setActiveStyle,
-  exportGeoJSON,
-  importGeoJSON,
-  toggleVisibility,
-  zoomToShape,
-  locate,
-  resetView,
-}: Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
+function ActionBtn({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: typeof Undo2;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <>
-      {/* Backdrop for mobile */}
-      {open && <div onClick={onClose} className="fixed inset-0 z-20 bg-black/20 md:hidden" />}
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+    >
+      <Icon size={14} /> {label}
+    </button>
+  );
+}
 
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-30 flex w-[86vw] max-w-sm transform flex-col bg-white shadow-2xl transition-transform duration-700 ease-out md:w-96",
-          open ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
-          <h1 className="text-sm font-bold text-slate-800">Карта метеопредупреждений</h1>
-          <button onClick={onClose} className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          {/* Draw tools */}
-          <section>
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Инструменты рисования</h2>
-            <div className="grid grid-cols-3 gap-2">
-              {DRAW_TOOLS.map((t) => (
-                <ToolButton key={t.mode} active={mode === t.mode} label={t.label} icon={t.icon} onClick={() => setMode(t.mode)} />
-              ))}
-            </div>
-          </section>
-
-          {/* Edit tools */}
-          <section>
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Редактирование</h2>
-            <div className="grid grid-cols-3 gap-2">
-              {EDIT_TOOLS.map((t) => (
-                <ToolButton key={t.mode} active={mode === t.mode} label={t.label} icon={t.icon} onClick={() => setMode(t.mode)} />
-              ))}
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                onClick={onDuplicate}
-                disabled={!selectedId}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95 disabled:opacity-40"
-              >
-                <Copy size={14} /> Дублировать
-              </button>
-              <button
-                onClick={onDeleteSelected}
-                disabled={!selectedId}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-2 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100 active:scale-95 disabled:opacity-40"
-              >
-                <Trash2 size={14} /> Удалить
-              </button>
-            </div>
-          </section>
-
-          {/* History */}
-          <section className="flex gap-2">
-            <button
-              onClick={undo}
-              disabled={!canUndo}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95 disabled:opacity-40"
-            >
-              <Undo2 size={14} /> Отменить
-            </button>
-            <button
-              onClick={redo}
-              disabled={!canRedo}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95 disabled:opacity-40"
-            >
-              <Redo2 size={14} /> Вернуть
-            </button>
-          </section>
-
-          {/* Category presets */}
-          <section>
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Шаблоны опасных явлений</h2>
-            <div className="grid grid-cols-2 gap-2">
-              {CATEGORY_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  onClick={() => setActiveCategory(preset.id)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs font-medium transition active:scale-95",
-                    activeCategory === preset.id ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                  )}
-                >
-                  <span className="text-base leading-none">{preset.emoji}</span>
-                  <span className="leading-tight">{preset.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Custom style */}
-          <section className="space-y-3 rounded-xl border border-slate-200 p-3">
-            <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">
-              Свой стиль{selectedId ? " (для выбранной зоны)" : ""}
-            </h2>
-
-            <div>
-              <div className="mb-1.5 text-[11px] font-semibold text-slate-500">Цвет</div>
-              <div className="flex flex-wrap gap-1.5">
-                {COLOR_SWATCHES.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setActiveStyle({ ...activeStyle, color: c })}
-                    className={cn(
-                      "h-7 w-7 rounded-full ring-2 ring-offset-1 transition active:scale-90",
-                      activeStyle.color === c ? "ring-slate-800" : "ring-transparent"
-                    )}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-1.5 text-[11px] font-semibold text-slate-500">Линия контура</div>
-              <SegmentedControl
-                value={activeStyle.lineStyle}
-                options={[
-                  { value: "solid", label: "Сплошная" },
-                  { value: "dashed", label: "Пунктир" },
-                ]}
-                onChange={(lineStyle) => setActiveStyle({ ...activeStyle, lineStyle })}
-              />
-            </div>
-
-            <div>
-              <div className="mb-1.5 text-[11px] font-semibold text-slate-500">Заливка</div>
-              <SegmentedControl
-                value={activeStyle.fillType}
-                options={[
-                  { value: "dots", label: "Точки" },
-                  { value: "hatch", label: "Штрихи" },
-                  { value: "solid", label: "Сплошная" },
-                ]}
-                onChange={(fillType) => setActiveStyle({ ...activeStyle, fillType })}
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-500">
-                <span>Непрозрачность заливки</span>
-                <span>{Math.round(activeStyle.opacity * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min={5}
-                max={90}
-                value={Math.round(activeStyle.opacity * 100)}
-                onChange={(e) => setActiveStyle({ ...activeStyle, opacity: Number(e.target.value) / 100 })}
-                className="w-full accent-indigo-600"
-              />
-            </div>
-          </section>
-
-          {/* Layers */}
-          <section>
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Слои ({shapes.length})</h2>
-              {shapes.length > 0 && (
-                <button onClick={onClearAll} className="text-[11px] font-semibold text-red-500 hover:underline">
-                  Очистить всё
-                </button>
-              )}
-            </div>
-            <div className="space-y-1.5">
-              {shapes.length === 0 && (
-                <p className="rounded-lg bg-slate-50 p-3 text-center text-[11px] text-slate-400">
-                  Пока нет ни одной зоны. Выберите инструмент выше и нарисуйте её на карте.
-                </p>
-              )}
-              {shapes.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => {
-                    selectShape(s.id);
-                    zoomToShape(s.id);
-                  }}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-xs transition",
-                    selectedId === s.id ? "border-indigo-400 bg-indigo-50" : "border-slate-200 bg-white hover:bg-slate-50"
-                  )}
-                >
-                  <span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: s.style.color }} />
-                  <span className="flex-1 truncate font-medium text-slate-700">{s.name}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleVisibility(s.id);
-                    }}
-                    className="shrink-0 text-slate-400 hover:text-slate-700"
-                  >
-                    {s.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Import / Export */}
-          <section>
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Данные</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={exportGeoJSON}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95"
-              >
-                <Download size={14} /> Экспорт
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95"
-              >
-                <Upload size={14} /> Импорт
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".geojson,application/geo+json,application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => importGeoJSON(String(reader.result));
-                  reader.readAsText(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-          </section>
-
-          {/* Map utils */}
-          <section className="grid grid-cols-2 gap-2">
-            <button
-              onClick={locate}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95"
-            >
-              <Crosshair size={14} /> Моё место
-            </button>
-            <button
-              onClick={resetView}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95"
-            >
-              <RotateCw size={14} /> Сбросить вид
-            </button>
-          </section>
-        </div>
-      </aside>
-    </>
+function IconBtn({ icon: Icon, onClick }: { icon: typeof Eye; onClick: (e: React.MouseEvent) => void }) {
+  return (
+    <button onClick={onClick} className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-200/70 dark:hover:bg-slate-700">
+      <Icon size={13} />
+    </button>
   );
 }

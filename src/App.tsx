@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Menu, CloudLightning } from "lucide-react";
+import { Menu, Radar } from "lucide-react";
 import { useMapEngine } from "./hooks/useMapEngine";
 import Toolbar from "./components/Toolbar";
 import DrawControls from "./components/DrawControls";
@@ -17,16 +17,20 @@ export default function App() {
     canUndo,
     canRedo,
     hint,
+    tempPointCount,
     activeCategory,
     setActiveCategory,
     activeStyle,
     setActiveStyle,
+    theme,
+    setTheme,
+    synoptic,
+    setSynoptic,
   } = useMapEngine();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Open the editor panel automatically after a short delay on first load,
-  // with a smooth slide-in animation.
+  // Плавно открываем панель инструментов вскоре после загрузки карты.
   useEffect(() => {
     const t = setTimeout(() => setSidebarOpen(true), 350);
     return () => clearTimeout(t);
@@ -58,7 +62,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `weather-zones-${new Date().toISOString().slice(0, 10)}.geojson`;
+    a.download = `meteotatar-zones-${new Date().toISOString().slice(0, 10)}.geojson`;
     a.click();
     URL.revokeObjectURL(url);
   }, [engine]);
@@ -66,11 +70,11 @@ export default function App() {
   const importGeoJSON = useCallback((text: string) => engine.current?.importGeoJSON(text), [engine]);
 
   return (
-    <div className="fixed inset-0 h-[100dvh] w-screen overflow-hidden bg-slate-100 font-sans">
+    <div className={cn("fixed inset-0 h-[100dvh] w-screen overflow-hidden font-sans", theme === "dark" ? "bg-slate-950" : "bg-slate-100")}>
       {/* Map */}
       <div ref={containerRef} className="absolute inset-0 z-0" />
 
-      {/* Top bar (mobile-friendly, safe-area aware) */}
+      {/* Top bar */}
       <div
         className={cn(
           "pointer-events-none fixed inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] transition-opacity duration-700",
@@ -79,14 +83,14 @@ export default function App() {
       >
         <button
           onClick={() => setSidebarOpen(true)}
-          className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/95 py-2.5 pl-3 pr-4 text-sm font-semibold text-slate-700 shadow-2xl ring-1 ring-slate-200 backdrop-blur transition active:scale-95"
+          className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/95 py-2.5 pl-3 pr-4 text-sm font-semibold text-slate-700 shadow-2xl ring-1 ring-slate-200 backdrop-blur transition active:scale-95 dark:bg-slate-900/95 dark:text-slate-100 dark:ring-slate-700"
         >
           <Menu size={18} />
           <span className="hidden sm:inline">Инструменты</span>
         </button>
-        <div className="pointer-events-auto hidden items-center gap-2 rounded-full bg-white/95 px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-2xl ring-1 ring-slate-200 backdrop-blur sm:flex">
-          <CloudLightning size={16} className="text-indigo-600" />
-          Карта метеопредупреждений
+        <div className="pointer-events-auto hidden items-center gap-2 rounded-full bg-white/95 px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-2xl ring-1 ring-slate-200 backdrop-blur sm:flex dark:bg-slate-900/95 dark:text-slate-100 dark:ring-slate-700">
+          <Radar size={16} className="text-indigo-600" />
+          CSF · МетеоТатарстан — карта предупреждений
         </div>
       </div>
 
@@ -109,6 +113,10 @@ export default function App() {
         setActiveCategory={setActiveCategory}
         activeStyle={activeStyle}
         setActiveStyle={setActiveStyle}
+        theme={theme}
+        setTheme={setTheme}
+        synoptic={synoptic}
+        setSynoptic={setSynoptic}
         exportGeoJSON={exportGeoJSON}
         importGeoJSON={importGeoJSON}
         toggleVisibility={toggleVisibility}
@@ -117,7 +125,14 @@ export default function App() {
         resetView={resetView}
       />
 
-      <DrawControls mode={mode} hint={hint} onFinish={onFinish} onCancel={onCancel} onUndoPoint={onUndoPoint} />
+      <DrawControls
+        mode={mode}
+        hint={hint}
+        tempPointCount={tempPointCount}
+        onFinish={onFinish}
+        onCancel={onCancel}
+        onUndoPoint={onUndoPoint}
+      />
 
       <Legend />
     </div>

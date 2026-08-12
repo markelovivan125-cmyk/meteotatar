@@ -1,76 +1,81 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MapEngine } from "../lib/mapEngine";
-import type { DrawMode, ShapeRecord, ShapeStyle } from "../types/shapes";
-import { CATEGORY_PRESETS } from "../types/shapes";
+import type { CategoryId } from "../lib/categories";
+import type { ActiveStylePatch, DrawMode, ShapeMeta, ShapeStatus } from "../types/map";
 
 export function useMapEngine() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<MapEngine | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const engine = useRef<MapEngine | null>(null);
+
   const [mode, setModeState] = useState<DrawMode>("select");
-  const [shapes, setShapes] = useState<ShapeRecord[]>([]);
+  const [shapes, setShapes] = useState<ShapeMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedStyle, setSelectedStyle] = useState<ShapeStyle | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [hint, setHint] = useState("");
-  const [activeCategory, setActiveCategoryState] = useState(CATEGORY_PRESETS[0].id);
-  const [activeStyle, setActiveStyleState] = useState<ShapeStyle>(CATEGORY_PRESETS[0].style);
+  const [tempPointCount, setTempPointCount] = useState(0);
+  const [activeCategory, setActiveCategoryState] = useState<CategoryId>("convective");
+  const [activeStyle, setActiveStyleState] = useState<{ color: string; fillOpacity: number; status: ShapeStatus }>({
+    color: "#f97316",
+    fillOpacity: 0.35,
+    status: "forecast",
+  });
+  const [theme, setThemeState] = useState<"light" | "dark">("light");
+  const [synoptic, setSynopticState] = useState("");
 
   useEffect(() => {
-    if (!containerRef.current || engineRef.current) return;
-    const engine = new MapEngine(containerRef.current, {
-      onChange: setShapes,
-      onModeChange: setModeState,
-      onSelectionChange: (id, style) => {
-        setSelectedId(id);
-        setSelectedStyle(style);
-      },
-      onHistoryChange: (u, r) => {
-        setCanUndo(u);
-        setCanRedo(r);
-      },
-      onHint: setHint,
-    });
-    engineRef.current = engine;
-    engine.emitChange();
+    if (!containerRef.current) return;
+    const eng = new MapEngine(containerRef.current);
+    engine.current = eng;
+    setSynopticState(eng.synopticName);
+
+    const sync = () => {
+      setShapes(eng.getShapesList());
+      setSelectedId(eng.selectedId);
+      setCanUndo(eng.undoStack.length > 0);
+      setCanRedo(eng.redoStack.length > 0);
+      setHint(eng.hint);
+      setModeState(eng.mode);
+      setTempPointCount(eng.tempPoints.length);
+      setActiveCategoryState(eng.activeCategory);
+      setActiveStyleState({ ...eng.activeStyle });
+      setThemeState(eng.theme);
+      setSynopticState(eng.synopticName);
+    };
+    const unsub = eng.subscribe(sync);
+    sync();
+
     return () => {
-      engine.destroy();
-      engineRef.current = null;
+      unsub();
+      eng.destroy();
+      engine.current = null;
     };
   }, []);
 
-  const setMode = useCallback((m: DrawMode) => engineRef.current?.setMode(m), []);
-
-  const setActiveCategory = useCallback((id: string) => {
-    const preset = CATEGORY_PRESETS.find((p) => p.id === id);
-    if (!preset) return;
-    setActiveCategoryState(id);
-    setActiveStyleState(preset.style);
-    engineRef.current?.setActiveCategory(id);
-    engineRef.current?.setActiveStyle(preset.style);
-    if (engineRef.current?.getSelectedId()) engineRef.current.applyCategoryToSelected(id, preset.style);
-  }, []);
-
-  const setActiveStyle = useCallback((style: ShapeStyle) => {
-    setActiveStyleState(style);
-    engineRef.current?.setActiveStyle(style);
-    if (engineRef.current?.getSelectedId()) engineRef.current.applyStyleToSelected(style);
-  }, []);
+  const setMode = useCallback((m: DrawMode) => engine.current?.setMode(m), []);
+  const setActiveCategory = useCallback((c: CategoryId) => engine.current?.setActiveCategory(c), []);
+  const setActiveStyle = useCallback((s: ActiveStylePatch) => engine.current?.setActiveStyle(s), []);
+  const setTheme = useCallback((t: "light" | "dark") => engine.current?.setTheme(t), []);
+  const setSynoptic = useCallback((name: string) => engine.current?.setSynopticName(name), []);
 
   return {
     containerRef,
-    engine: engineRef,
+    engine,
     mode,
     setMode,
     shapes,
     selectedId,
-    selectedStyle,
     canUndo,
     canRedo,
     hint,
+    tempPointCount,
     activeCategory,
     setActiveCategory,
     activeStyle,
     setActiveStyle,
+    theme,
+    setTheme,
+    synoptic,
+    setSynoptic,
   };
 }
